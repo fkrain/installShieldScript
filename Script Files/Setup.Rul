@@ -1,0 +1,180 @@
+//===========================================================================
+//
+//  File Name:    Setup.rul
+//
+//  Description:  Blank setup main script file
+//
+//  Comments:     Blank setup is an empty setup project. If you want to
+//				  create a new project via. step-by step instructions use the
+//				  Project Assistant.
+//
+//===========================================================================
+
+// Included header files ----------------------------------------------------
+#include "ifx.h"
+prototype modifyIniFile(STRING);    // 修改配置文件
+prototype IsProductWasInstalled();  // 暂未使用
+prototype StartUp() ;               // 开机启动
+
+
+BOOL   g_isInstall;// 用于标记用户是否安装了程序
+string g_key;    // 全局licence key
+
+ 
+function OnUninstall()
+begin                      
+            // 删除目录
+           DeleteDir(TARGETDIR,  ALLCONTENTS);
+           // 删除注册表
+           RegDBSetDefaultRoot(HKEY_CURRENT_USER);
+           RegDBDeleteKey ("SOFTWARE\\Microsoft\\Windows\\Currentversion\\Run\\mmtrixMoniTor");
+end;
+
+
+function OnBegin()
+begin 
+    // TODO: Perform custom initialization steps, check requirements, etc.
+     g_isInstall = FALSE;
+     //if (AskYesNo("已经发现本软件已经被安装!\r\n" + "是否继续安装?", YES) = NO) then  
+end;                              
+ 
+function OnEnd()
+begin
+    if(g_isInstall)  then 
+     StartUp() ;
+     modifyIniFile(g_key);                    
+     endif;                    
+
+end; 
+
+function OnFirstUIBefore()
+    number  nResult, nLevel, nSize, nSetupType;
+    string  szTitle, szMsg, szOpt1, szOpt2, szLicenseTitle;
+    string  szName, szCompany, szTargetPath, szDir, szFeatures;
+    string  svResult, szDefault,szFileFullName;
+    INT     iLength,iVal; 
+    BOOL    bLicenseAccepted, bRet;
+begin	     
+// 安装程序启动时
+Dlg_Start:
+    nResult = 0;         
+    nSetupType = COMPLETE;	
+    szDir = TARGETDIR;
+    szName = "";
+    szCompany = "";
+    bLicenseAccepted = FALSE;
+          
+// 进入欢迎界面
+Dlg_SdWelcome:
+    szTitle = "";
+    szMsg = "欢迎使用........";
+    nResult = SdWelcome( szTitle, szMsg );
+    if (nResult = BACK) goto Dlg_Start;
+       
+//  输入licence key       
+ Dlg_EnterPassword:
+    szLicenseTitle = "请输入Licence Key";
+    szDefault = "123456";
+    svResult = "";    
+    nResult = EnterPassword(szLicenseTitle,szDefault,svResult);
+    if (nResult = BACK) then
+        goto Dlg_SdWelcome;     
+     endif;
+  iVal = 0;
+  iLength = StrLength (svResult);
+  
+  // 检测输入长度
+  if (iLength > 32) then
+    MessageBox ("licence key 不合法, 长度不能大于32!.", SEVERE);
+    goto  Dlg_EnterPassword;
+  endif;
+   
+  // 检测输入字符 
+  while(iVal < iLength) 
+    if(((svResult[iVal]>= 'a')&&(svResult[iVal]<= 'z')) ||((svResult[iVal]>= 'A')&&(svResult[iVal]<= 'Z')) ||((svResult[iVal]>= '0') &&(svResult[iVal]<= '9'))) then 
+    else
+      MessageBox ("licence key 不合法. 只能输入字母或数字!.", SEVERE);
+      goto    Dlg_EnterPassword;
+    endif;
+    
+     iVal++;
+  endwhile;
+
+     
+       
+ //安装路径       
+ Dlg_SdAskDestPath:
+	szTitle = "";
+    szMsg = "";
+    nResult = SdAskDestPath2( szTitle, szMsg, szDir );
+    if (nResult = BACK) goto Dlg_EnterPassword;          
+    TARGETDIR = szDir;
+              
+Dlg_ObjDialogs:
+    nResult = ShowObjWizardPages( nResult );
+    if (nResult = BACK) goto Dlg_SdAskDestPath;
+  
+Dlg_SdStartCopy2:
+    szTitle = "";
+    szMsg = "";
+    nResult = SdStartCopy2( szTitle, szMsg );	    
+    if (nResult = BACK) goto Dlg_ObjDialogs;
+                                                                       
+    SetStatusExStaticText( SdLoadString( IDS_IFX_STATUSEX_STATICTEXT_FIRSTUI ) );
+    
+    // 设置安装标志
+    g_isInstall = TRUE;  
+    g_key = svResult;
+    return 0;
+end; 
+
+//----------------------------------------------------
+//  修改配置文件
+//----------------------------------------------------        
+function  modifyIniFile(key)
+  string szfileName, szSectionName,szKeyName,szOrigValue,szReplaceValue, regist, fullpath ;
+  begin 
+       szfileName =    TARGETDIR ^ "Setup.ini";
+       szSectionName =  "custom"; 
+       szKeyName = "license_key";
+       szReplaceValue=key; 
+       
+       // 修改配置文件
+       if(GetProfString ( szfileName, szSectionName, szKeyName, szOrigValue ) = 0) then 
+         if(ReplaceProfString(szfileName, szSectionName,szKeyName,szOrigValue,szReplaceValue)= 0) then
+         endif;
+       endif;  
+  end;
+                     
+                                    
+//----------------------------------------------------
+//  注册开机启动
+//----------------------------------------------------
+function StartUp() 
+string szLoadProgram, szValue;
+begin
+ // 应用程序全路径  
+ szValue = "\"" + TARGETDIR^"procexp.exe" +  "\"";
+ RegDBSetDefaultRoot(HKEY_CURRENT_USER);
+ szLoadProgram = "SOFTWARE\\Microsoft\\Windows\\Currentversion\\Run\\";
+ if (RegDBSetKeyValueEx(szLoadProgram, "mmtrixMoniTor", REGDB_STRING, szValue, -1 ) < 0) then 
+     MessageBox ("开机启动设置失败.", SEVERE);
+ endif; 
+end;
+
+//----------------------------------------------------
+// 校验产品是否已经安装, 暂未使用
+//----------------------------------------------------
+function IsProductWasInstalled()
+    BOOL bRc;
+begin
+    if (MAINTENANCE != 0) then
+        // 产品已经被安装过
+        bRc = TRUE;
+    else
+        // 产品首次被安装(还没有被安装，本次安装是首次)
+        bRc = FALSE;
+    endif;                    
+
+    return bRc;
+end; 
